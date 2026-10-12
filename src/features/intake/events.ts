@@ -21,5 +21,6 @@ export type IntakeEvent =
 	| { type: "message.delta"; text: string }
 	| { type: "message.done" }
 	| { type: "form.patch"; patch: IntakeDraft }
+	| { type: "handoff.requested"; ref: string }
 	| { type: "error"; message: string }
 	| { type: "done" };

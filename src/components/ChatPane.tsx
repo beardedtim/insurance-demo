@@ -1,12 +1,14 @@
 import { Box, Button, Flex, Input, Stack, Text } from "@chakra-ui/react";
 import { useStore } from "@tanstack/react-store";
 import { useState } from "react";
+import { Markdown } from "#/components/Markdown";
 import { intakeStore } from "#/features/intake/store";
 import { sendChat } from "#/features/intake/stream-chat";
 
 export function ChatPane() {
 	const messages = useStore(intakeStore, (s) => s.messages);
 	const streaming = useStore(intakeStore, (s) => s.streaming);
+	const handoff = useStore(intakeStore, (s) => s.handoff);
 	const [draft, setDraft] = useState("");
 
 	const submit = () => {
@@ -34,10 +36,19 @@ export function ChatPane() {
 						py="2"
 						maxW="85%"
 					>
-						<Text whiteSpace="pre-wrap">{message.content || "…"}</Text>
+						{message.role === "user" ? (
+							<Text whiteSpace="pre-wrap">{message.content}</Text>
+						) : (
+							<Markdown>{message.content || "…"}</Markdown>
+						)}
 					</Box>
 				))}
 			</Stack>
+			{handoff.status === "sent" && (
+				<Text px="4" py="2" fontSize="sm" color="fg.muted" bg="bg.subtle">
+					A team member has been notified (ref {handoff.ref}).
+				</Text>
+			)}
 			<Flex
 				as="form"
 				gap="2"

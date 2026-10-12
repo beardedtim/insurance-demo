@@ -5,10 +5,11 @@ import {
 	appendToLastMessage,
 	applyPatch,
 	intakeStore,
+	setHandoff,
 	setStreaming,
 } from "./store";
 
-const handleEvent = (event: IntakeEvent): void => {
+export const handleEvent = (event: IntakeEvent): void => {
 	switch (event.type) {
 		case "message.delta":
 			appendToLastMessage(event.text);
@@ -16,6 +17,10 @@ const handleEvent = (event: IntakeEvent): void => {
 			return;
 		case "form.patch":
 			applyPatch(event.patch);
+
+			return;
+		case "handoff.requested":
+			setHandoff(event.ref);
 
 			return;
 		case "error":

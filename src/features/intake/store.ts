@@ -8,6 +8,7 @@ export type IntakeState = {
 	errors: FieldErrors;
 	messages: ChatMessage[];
 	streaming: boolean;
+	handoff: { status: "idle" | "sent"; ref?: string };
 };
 
 export const intakeStore = new Store<IntakeState>({
@@ -15,6 +16,7 @@ export const intakeStore = new Store<IntakeState>({
 	errors: {},
 	messages: [],
 	streaming: false,
+	handoff: { status: "idle" },
 });
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -87,4 +89,11 @@ export const appendToLastMessage = (text: string): void => {
 
 export const setStreaming = (streaming: boolean): void => {
 	intakeStore.setState((state) => ({ ...state, streaming }));
+};
+
+export const setHandoff = (ref: string): void => {
+	intakeStore.setState((state) => ({
+		...state,
+		handoff: { status: "sent", ref },
+	}));
 };

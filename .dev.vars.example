@@ -1,1 +1,5 @@
 TOGETHER_API_KEY=
+# Optional overrides
+# TOGETHER_BASE_URL=https://api.together.xyz/v1
+# TOGETHER_MODEL=meta-llama/Llama-3.3-70B-Instruct-Turbo
+# CHAT_MAX_ROUNDS=3

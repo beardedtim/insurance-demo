@@ -3,6 +3,11 @@ import { z } from "zod";
 
 import type { ChatRequest, IntakeEvent } from "#/features/intake/events";
 import {
+	allowedLiabilityLimitsFor,
+	meetsMinLiability,
+	rulesSummaryFor,
+} from "#/features/intake/rules";
+import {
 	type IntakeDraft,
 	intakeDraftSchema,
 	validateComplete,
@@ -108,6 +113,11 @@ const systemPrompt = ({ form }: Pick<ChatRequest, "form">): string => {
 		`If a form value differs from what was said earlier in the conversation, do NOT change the form to match the conversation and do NOT call ${FORM_TOOL} to revert it. Keep the form value and briefly point out the difference once, e.g. "You told me NY and I entered NY, but the form now says CA. I'll go with CA, just flagging it."`,
 		`Only call ${FORM_TOOL} on a field that already has a different value if the user explicitly asks for that change in their latest message.`,
 		`Current form values (JSON): ${JSON.stringify(form)}`,
+		`Rules for this application (follow them when offering options):\n${rulesSummaryFor(
+			form.applicant?.garagingState,
+		)
+			.map((rule) => `- ${rule}`)
+			.join("\n")}`,
 		`Open issues:\n${open}`,
 	].join("\n\n");
 };
@@ -176,6 +186,29 @@ const mergeDraft = (base: IntakeDraft, patch: IntakeDraft): IntakeDraft => {
 	}
 
 	return merged as IntakeDraft;
+};
+
+/**
+ * Drops a liability limit below the state minimum (judged against the state after the
+ * patch). Returns the safe patch and a message for the model when something was dropped.
+ */
+export const enforceLiabilityMinimum = (
+	base: IntakeDraft,
+	patch: IntakeDraft,
+): { patch: IntakeDraft; rejection?: string } => {
+	const limit = patch.coverage?.liabilityLimit;
+	const state = mergeDraft(base, patch).applicant?.garagingState;
+
+	if (!limit || meetsMinLiability(limit, state)) {
+		return { patch };
+	}
+
+	const { liabilityLimit: _dropped, ...coverage } = patch.coverage ?? {};
+
+	return {
+		patch: { ...patch, coverage },
+		rejection: `${limit} is below the minimum for ${state ?? "the default state"}; not saved. Allowed options: ${allowedLiabilityLimitsFor(state).join(", ")}. Ask the user to choose one of these.`,
+	};
 };
 
 /** Lists the changed fields, e.g. "driver.name, driver.email". */
@@ -323,7 +356,10 @@ export async function* runChat({
 				label: "Updating the form",
 			};
 
-			const patch = parsePatch(call);
+			const parsedPatch = parsePatch(call);
+			const { patch, rejection } = parsedPatch
+				? enforceLiabilityMinimum(current, parsedPatch)
+				: { patch: undefined, rejection: undefined };
 
 			if (patch) {
 				current = mergeDraft(current, patch);
@@ -341,7 +377,11 @@ export async function* runChat({
 			history.push({
 				role: "tool",
 				tool_call_id: call.id,
-				content: patch ? "ok" : "error: invalid arguments, nothing was saved",
+				content: rejection
+					? `partially saved. ${rejection}`
+					: patch
+						? "ok"
+						: "error: invalid arguments, nothing was saved",
 			});
 		}
 	}

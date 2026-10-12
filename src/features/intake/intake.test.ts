@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { IntakeEvent } from "./events";
-import { minLiabilityFor } from "./rules";
+import {
+	allowedLiabilityLimitsFor,
+	minLiabilityFor,
+	rulesSummaryFor,
+} from "./rules";
 import { crossFieldErrors } from "./schema";
 import { encodeSse, parseSseStream } from "./sse";
 import { applyPatch, deepMerge, intakeStore, setField } from "./store";
@@ -15,6 +19,32 @@ describe("minLiabilityFor", () => {
 		expect(minLiabilityFor("FL")).toBe("10/20");
 		expect(minLiabilityFor("TX")).toBe("25/50");
 		expect(minLiabilityFor(undefined)).toBe("25/50");
+	});
+});
+
+describe("allowedLiabilityLimitsFor", () => {
+	it("only includes limits at or above the state minimum", () => {
+		expect(allowedLiabilityLimitsFor("CA")).toEqual([
+			"30/60",
+			"50/100",
+			"100/300",
+			"250/500",
+		]);
+		expect(allowedLiabilityLimitsFor("TX")).not.toContain("10/20");
+		expect(allowedLiabilityLimitsFor("FL")).toContain("10/20");
+	});
+});
+
+describe("rulesSummaryFor", () => {
+	it("lists only allowed options for the state", () => {
+		const [liability] = rulesSummaryFor("CA");
+
+		expect(liability).toContain("30/60, 50/100, 100/300, 250/500");
+		expect(liability).not.toContain("10/20");
+	});
+
+	it("asks for the state when unknown", () => {
+		expect(rulesSummaryFor(undefined)[0]).toContain("Ask for the state");
 	});
 });
 

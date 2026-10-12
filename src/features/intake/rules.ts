@@ -29,7 +29,20 @@ export const meetsMinLiability = (
 	LIABILITY_LIMITS.indexOf(limit) >=
 	LIABILITY_LIMITS.indexOf(minLiabilityFor(state));
 
-const toIsoDate = (date: Date): string => date.toISOString().slice(0, 10);
+export const allowedLiabilityLimitsFor = (
+	state: string | undefined,
+): readonly LiabilityLimit[] =>
+	LIABILITY_LIMITS.filter((limit) => meetsMinLiability(limit, state));
+
+/** Plain-text rules for the chat agent, derived from the same data as the form. */
+export const rulesSummaryFor = (state: string | undefined): string[] => [
+	state
+		? `Liability limit: for ${state} the only allowed options are ${allowedLiabilityLimitsFor(state).join(", ")} (minimum ${minLiabilityFor(state)}). Only offer these; never offer or set a lower limit.`
+		: `Liability limit: the allowed options depend on the state, which is not set yet. Ask for the state before offering liability limits.`,
+	`Claims: only at-fault claims within the last ${CLAIM_WINDOW_YEARS} years count; a most recent claim date is required only when the claim count is above 0.`,
+];
+
+const toIsoDate =(date: Date): string => date.toISOString().slice(0, 10);
 
 export const todayIso = (): string => toIsoDate(new Date());
 

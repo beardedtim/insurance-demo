@@ -42,7 +42,7 @@ export const rulesSummaryFor = (state: string | undefined): string[] => [
 	`Claims: only at-fault claims within the last ${CLAIM_WINDOW_YEARS} years count; a most recent claim date is required only when the claim count is above 0.`,
 ];
 
-const toIsoDate =(date: Date): string => date.toISOString().slice(0, 10);
+const toIsoDate = (date: Date): string => date.toISOString().slice(0, 10);
 
 export const todayIso = (): string => toIsoDate(new Date());
 

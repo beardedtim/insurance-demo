@@ -16,10 +16,16 @@ export const chatRequestSchema = z.object({
 
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 
+export type ActionKind = "form.update" | "slack.handoff";
+
+export type ActionStatus = "running" | "done" | "failed";
+
 /** The SSE contract between the BFF and the client. */
 export type IntakeEvent =
 	| { type: "message.delta"; text: string }
 	| { type: "message.done" }
+	| { type: "action.started"; id: string; kind: ActionKind; label: string }
+	| { type: "action.finished"; id: string; ok: boolean; detail?: string }
 	| { type: "form.patch"; patch: IntakeDraft }
 	| { type: "handoff.requested"; ref: string }
 	| { type: "error"; message: string }

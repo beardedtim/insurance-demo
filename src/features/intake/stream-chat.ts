@@ -4,15 +4,26 @@ import {
 	addMessage,
 	appendToLastMessage,
 	applyPatch,
+	finishAction,
 	intakeStore,
+	selectMessages,
 	setHandoff,
 	setStreaming,
+	startAction,
 } from "./store";
 
 export const handleEvent = (event: IntakeEvent): void => {
 	switch (event.type) {
 		case "message.delta":
 			appendToLastMessage(event.text);
+
+			return;
+		case "action.started":
+			startAction({ id: event.id, kind: event.kind, label: event.label });
+
+			return;
+		case "action.finished":
+			finishAction(event.id, event.ok, event.detail);
 
 			return;
 		case "form.patch":
@@ -41,7 +52,7 @@ export const sendChat = async (content: string): Promise<void> => {
 	addMessage({ role: "user", content });
 
 	const request: ChatRequest = {
-		messages: intakeStore.state.messages,
+		messages: selectMessages(intakeStore.state.entries),
 		form: intakeStore.state.values,
 	};
 

@@ -190,6 +190,65 @@ describe("runChat", () => {
 		error.mockRestore();
 	});
 
+	it("brackets update_form with action events listing the changed fields", async () => {
+		stubFetch(
+			sse([toolCall("update_form", { vehicle: { make: "Toyota" } })]),
+			sse([text("Got it")]),
+		);
+
+		const types = (await collect(runChat(request)))
+			.filter((e) => e.type.startsWith("action.") || e.type === "form.patch")
+			.map((e) => e.type);
+
+		expect(types).toEqual(["action.started", "form.patch", "action.finished"]);
+	});
+
+	it("reports invalid update_form args as a failed action", async () => {
+		stubFetch(
+			sse([toolCall("update_form", { vehicle: { year: "nope" } })]),
+			sse([text("Sorry")]),
+		);
+
+		const events = await collect(runChat(request));
+
+		expect(events).toContainEqual(
+			expect.objectContaining({ type: "action.finished", ok: false }),
+		);
+	});
+
+	it("reports pingSlack success and failure as actions", async () => {
+		const error = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+
+		send.mockResolvedValueOnce({ ok: true, ref: "ref-1" });
+		stubFetch(sse([toolCall("pingSlack", {})]), sse([text("Done")]));
+
+		expect(await collect(runChat(request))).toContainEqual({
+			type: "action.finished",
+			id: "call_1",
+			ok: true,
+			detail: "Reference ref-1",
+		});
+
+		send.mockRejectedValueOnce(new Error("boom"));
+		stubFetch(sse([toolCall("pingSlack", {})]), sse([text("Sorry")]));
+
+		expect(await collect(runChat(request))).toContainEqual(
+			expect.objectContaining({ type: "action.finished", ok: false }),
+		);
+
+		error.mockRestore();
+	});
+
+	it("emits no action events for unknown tools", async () => {
+		stubFetch(sse([toolCall("rm_rf", {})]));
+
+		const events = await collect(runChat(request));
+
+		expect(events.some((e) => e.type.startsWith("action."))).toBe(false);
+	});
+
 	it("ignores unknown tools and stops", async () => {
 		const fetchMock = stubFetch(sse([toolCall("rm_rf", {})]));
 

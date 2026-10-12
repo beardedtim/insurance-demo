@@ -175,6 +175,14 @@ const mergeDraft = (base: IntakeDraft, patch: IntakeDraft): IntakeDraft => {
 	return merged as IntakeDraft;
 };
 
+/** Lists the changed fields, e.g. "driver.name, driver.email". */
+const describePatch = (patch: IntakeDraft): string =>
+	Object.entries(patch)
+		.flatMap(([section, values]) =>
+			Object.keys(values ?? {}).map((field) => `${section}.${field}`),
+		)
+		.join(", ");
+
 /**
  * Streams a Together.AI chat completion as `IntakeEvent`s. Text deltas become
  * `message.delta`; `update_form` tool calls become `form.patch` and `pingSlack` hands the
@@ -260,8 +268,17 @@ export async function* runChat({
 			})),
 		});
 
-		for (const call of known) {
+		for (const [index, call] of known.entries()) {
+			const id = call.id || `${round}-${index}`;
+
 			if (call.name === SLACK_TOOL) {
+				yield {
+					type: "action.started",
+					id,
+					kind: "slack.handoff",
+					label: "Notifying the customer-service team",
+				};
+
 				const result = await sendHandoffToSlack({
 					reason: parseReason(call),
 					messages,
@@ -276,6 +293,15 @@ export async function* runChat({
 					yield { type: "handoff.requested", ref: result.ref };
 				}
 
+				yield {
+					type: "action.finished",
+					id,
+					ok: Boolean(result?.ok),
+					detail: result?.ok
+						? `Reference ${result.ref}`
+						: "Could not reach the team",
+				};
+
 				history.push({
 					role: "tool",
 					tool_call_id: call.id,
@@ -287,6 +313,13 @@ export async function* runChat({
 				continue;
 			}
 
+			yield {
+				type: "action.started",
+				id,
+				kind: "form.update",
+				label: "Updating the form",
+			};
+
 			const patch = parsePatch(call);
 
 			if (patch) {
@@ -294,6 +327,13 @@ export async function* runChat({
 
 				yield { type: "form.patch", patch };
 			}
+
+			yield {
+				type: "action.finished",
+				id,
+				ok: Boolean(patch),
+				detail: patch ? describePatch(patch) : "Invalid values, nothing saved",
+			};
 
 			history.push({
 				role: "tool",

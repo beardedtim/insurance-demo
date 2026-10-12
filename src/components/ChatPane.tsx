@@ -1,15 +1,24 @@
 import { Box, Button, Flex, Input, Stack, Text } from "@chakra-ui/react";
 import { useStore } from "@tanstack/react-store";
 import { useState } from "react";
+import { ActionTimeline } from "#/components/ActionTimeline";
 import { Markdown } from "#/components/Markdown";
+import { TypingIndicator } from "#/components/TypingIndicator";
 import { intakeStore } from "#/features/intake/store";
 import { sendChat } from "#/features/intake/stream-chat";
 
 export function ChatPane() {
-	const messages = useStore(intakeStore, (s) => s.messages);
+	const entries = useStore(intakeStore, (s) => s.entries);
 	const streaming = useStore(intakeStore, (s) => s.streaming);
-	const handoff = useStore(intakeStore, (s) => s.handoff);
 	const [draft, setDraft] = useState("");
+	const last = entries.at(-1);
+
+	// Waiting on the LLM: streaming, but no text is arriving and no action is mid-flight.
+	const waiting =
+		streaming &&
+		(!last ||
+			(last.role === "assistant" && !last.content) ||
+			(last.role === "action" && last.status !== "running"));
 
 	const submit = () => {
 		const text = draft.trim();
@@ -25,30 +34,30 @@ export function ChatPane() {
 	return (
 		<Flex direction="column" h="full" minH="0">
 			<Stack flex="1" minH="0" overflowY="auto" gap="3" p="4">
-				{messages.map((message, index) => (
-					<Box
-						// biome-ignore lint/suspicious/noArrayIndexKey: append-only list
-						key={index}
-						alignSelf={message.role === "user" ? "flex-end" : "flex-start"}
-						bg={message.role === "user" ? "bg.emphasized" : "bg.muted"}
-						borderRadius="l2"
-						px="3"
-						py="2"
-						maxW="85%"
-					>
-						{message.role === "user" ? (
-							<Text whiteSpace="pre-wrap">{message.content}</Text>
-						) : (
-							<Markdown>{message.content || "…"}</Markdown>
-						)}
-					</Box>
-				))}
+				{entries.map((entry, index) =>
+					entry.role === "action" ? (
+						<ActionTimeline key={entry.id} action={entry} />
+					) : entry.role === "assistant" && !entry.content ? null : (
+						<Box
+							// biome-ignore lint/suspicious/noArrayIndexKey: append-only list
+							key={index}
+							alignSelf={entry.role === "user" ? "flex-end" : "flex-start"}
+							bg={entry.role === "user" ? "bg.emphasized" : "bg.muted"}
+							borderRadius="l2"
+							px="3"
+							py="2"
+							maxW="85%"
+						>
+							{entry.role === "user" ? (
+								<Text whiteSpace="pre-wrap">{entry.content}</Text>
+							) : (
+								<Markdown>{entry.content}</Markdown>
+							)}
+						</Box>
+					),
+				)}
+				{waiting && <TypingIndicator />}
 			</Stack>
-			{handoff.status === "sent" && (
-				<Text px="4" py="2" fontSize="sm" color="fg.muted" bg="bg.subtle">
-					A team member has been notified (ref {handoff.ref}).
-				</Text>
-			)}
 			<Flex
 				as="form"
 				gap="2"

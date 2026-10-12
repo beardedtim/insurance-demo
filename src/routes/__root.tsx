@@ -1,8 +1,10 @@
+import { Center, Heading, Stack, Text } from "@chakra-ui/react";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import type { QueryClient } from "@tanstack/react-query";
 import {
 	createRootRouteWithContext,
 	HeadContent,
+	Link,
 	Scripts,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
@@ -29,7 +31,22 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 		],
 	}),
 	shellComponent: RootDocument,
+	notFoundComponent: NotFound,
 });
+
+function NotFound() {
+	return (
+		<Center h="100dvh">
+			<Stack align="center" gap="2">
+				<Heading as="h1" size="xl">
+					Page not found
+				</Heading>
+				<Text color="fg.muted">That page doesn't exist.</Text>
+				<Link to="/">Back to the intake form</Link>
+			</Stack>
+		</Center>
+	);
+}
 
 function RootDocument({ children }: { children: React.ReactNode }) {
 	return (

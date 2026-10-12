@@ -70,6 +70,7 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
 export const applicantSchema = z.object({
 	fullName: z.string().trim().min(1, "Full name is required"),
 	dateOfBirth: isoDate,
+	email: z.email("Enter a valid email address"),
 	garagingState: z.enum(US_STATES),
 });
 

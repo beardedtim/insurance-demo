@@ -48,13 +48,22 @@ export const formatHandoffMessage = ({
 	].join("\n\n");
 };
 
-/** Posts the handoff to the Slack incoming webhook; logs instead when unconfigured. */
+/**
+ * Posts the handoff to the Slack incoming webhook. Unconfigured, dev logs the message and
+ * reports ok; production reports failure rather than pretend someone was notified.
+ */
 export const sendHandoffToSlack = async (
 	payload: HandoffPayload,
 ): Promise<{ ok: boolean; ref: string }> => {
 	const ref = crypto.randomUUID();
 	const text = formatHandoffMessage(payload);
 	const url = (env as { SLACK_WEBHOOK_URL?: string }).SLACK_WEBHOOK_URL;
+
+	if (!url && import.meta.env.PROD) {
+		console.error(`[pingSlack:${ref}] SLACK_WEBHOOK_URL is not configured`);
+
+		return { ok: false, ref };
+	}
 
 	if (!url) {
 		console.warn("[pingSlack] SLACK_WEBHOOK_URL not set; logging instead");

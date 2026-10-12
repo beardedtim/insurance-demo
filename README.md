@@ -1,198 +1,98 @@
-Welcome to your new TanStack Start app!
+# Car Insurance Intake
 
-# Getting Started
+A car-insurance intake app. The user fills out a form by hand, by chatting with an LLM agent, or both. The agent proposes values as field-level patches, the server validates them, and the agent can hand the conversation to a human through Slack.
 
-To run this application:
+Stack: TanStack Start (React) on a Cloudflare Worker, Chakra UI v3, zod, Together.AI for the model, a Slack incoming webhook for handoff.
+
+See [`ARCH.md`](./ARCH.md) for how the pieces fit together and [`NEXT_STEPS.md`](./NEXT_STEPS.md) for what is still open.
+
+## How it works
+
+- **Split UI.** Chat on the left, live form on the right, both reading and writing one shared store.
+- **Field-level patches.** The agent writes through an `update_form` tool. Patches stream to the client as SSE events (`src/features/intake/events.ts`).
+- **The form is the source of truth.** The full form, the fields the user touched, and their recent hand edits are sent on every turn; the server keeps nothing between requests.
+- **The server is the last line of defence.** `src/features/intake/guard.ts` validates each proposed field, applies the cross-field rules, and refuses to overwrite fields the user set by hand unless their latest message asks for the change. Rejections are fed back to the model and shown on the field.
+- **Field states.** Each value is visibly an agent suggestion, a user entry, or confirmed. The user can confirm a suggestion.
+- **Rules.** Minimum liability per garaging state (CA, NY, FL, plus a default), and a claim date that is required if and only if the claim count is above zero, within five years (`rules.ts`, `schema.ts`).
+- **Human handoff.** When the user asks for a person, or the agent keeps getting rejected, it posts the reason, open issues, transcript and partial form to Slack and shows the reference in the chat. It only sends once.
+
+## Local setup
+
+Requires Node and [pnpm](https://pnpm.io/).
 
 ```bash
 pnpm install
-pnpm dev
+cp .dev.vars.example .dev.vars   # then fill in the keys
+pnpm dev                         # http://localhost:3000
 ```
 
-# Building For Production
+### Environment
 
-To build this application for production:
+Set in `.dev.vars` locally and with `wrangler secret put` in production.
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `TOGETHER_API_KEY` | yes | Together.AI key. Chat fails without it. |
+| `SLACK_WEBHOOK_URL` | for handoff | Slack incoming webhook. Unset in dev, the handoff is logged to the console; unset in production, it reports failure. |
+| `TOGETHER_BASE_URL` | no | Any OpenAI-compatible endpoint. Default `https://api.together.xyz/v1`. |
+| `TOGETHER_MODEL` | no | Default `meta-llama/Llama-3.3-70B-Instruct-Turbo`. |
+| `CHAT_MAX_ROUNDS` | no | Cap on tool-call rounds per turn. Default 3. |
+
+## Scripts
+
+| Command | What it does |
+| --- | --- |
+| `pnpm dev` | Dev server on port 3000. |
+| `pnpm build` / `pnpm preview` | Production build, and a local preview of it. |
+| `pnpm test` | Unit tests (Vitest). |
+| `pnpm test:e2e` | Playwright against a scripted model and a fake Slack. Deterministic, no keys needed. |
+| `pnpm test:e2e:live` | Playwright against the real model and a real Slack webhook. Needs `.dev.vars.live` (copy `.dev.vars.live.example`); uses tokens and posts to Slack, so point it at a test channel. |
+| `pnpm check` / `pnpm lint` / `pnpm format` | [Biome](https://biomejs.dev/). |
+| `pnpm deploy` | Build and `wrangler deploy`. |
+
+## Demo scenarios
+
+1. **Conversation fills the form.** Describe yourself and your car in one message ("I'm Sam Lee, I live in California and drive a 2020 Honda Civic"). The matching fields appear on the right as agent suggestions; confirm or edit them.
+2. **Edit a field and the agent respects it.** Change a field by hand, then keep chatting. The agent sees the edit and cannot overwrite it unless you ask for the change.
+3. **Ask for a human.** Say you want to talk to a person. Slack receives the transcript and the partial form, and the chat shows the reference.
+
+<!-- TODO: add screenshots or a GIF for each scenario. -->
+
+## Project layout
+
+```
+src/
+  routes/            page and the /api/chat route
+  components/        ChatPane, IntakeForm, field inputs
+  features/intake/   schema, rules, store, SSE protocol, patch guard
+  server/            chat loop (chat.server.ts) and Slack handoff (slack.server.ts)
+  theme/system.ts    Chakra tokens
+e2e/                 Playwright specs (mock and live)
+```
+
+## Deploying
+
+Cloudflare Workers via the Vite plugin and `wrangler.jsonc`:
 
 ```bash
-pnpm build
+wrangler login
+wrangler secret put TOGETHER_API_KEY
+wrangler secret put SLACK_WEBHOOK_URL
+pnpm deploy
 ```
 
-## Styling
+Non-secret config goes under `vars` in `wrangler.jsonc`.
 
-This project uses [Chakra UI v3](https://chakra-ui.com/) for styling. Theme tokens live in `src/theme/system.ts`.
+## Conventions
 
-## Linting & Formatting
+Styling is Chakra UI v3 with theme tokens only, and code style is enforced by Biome. See [`AGENTS.md`](./AGENTS.md).
 
-This project uses [Biome](https://biomejs.dev/) for linting and formatting. The following scripts are available:
+## Left out, and next
 
+- No rate limiting on `/api/chat`, so anyone who can reach it can spend the Together key.
+- No request size caps, no CSP or security headers, and the dev fallback logs the full form and transcript.
+- No persistence: state lives in the browser and is lost on refresh.
+- No submit step or premium estimate, no CI, and no infrastructure as code.
+- Slack is outbound only; there are no replies back into the chat.
 
-```bash
-pnpm lint
-pnpm format
-pnpm check
-```
-
-
-## Deploy to Cloudflare Workers
-
-This project uses the Cloudflare Vite plugin (configured in `vite.config.ts`) and `wrangler.jsonc`:
-
-1. Install Wrangler: `npm install -g wrangler`
-2. Authenticate: `wrangler login`
-3. Deploy: `npx wrangler deploy`
-
-For production env vars, run `wrangler secret put MY_VAR` for each secret listed in `.env.example`. Public (non-secret) vars go in `wrangler.jsonc` under `vars`.
-
-KV, D1, R2, and Durable Object bindings are configured in `wrangler.jsonc` — see https://developers.cloudflare.com/workers/wrangler/configuration/.
-
-
-
-## Routing
-
-This project uses [TanStack Router](https://tanstack.com/router) with file-based routing. Routes are managed as files in `src/routes`.
-
-### Adding A Route
-
-To add a new route to your application just add a new file in the `./src/routes` directory.
-
-TanStack will automatically generate the content of the route file for you.
-
-Now that you have two routes you can use a `Link` component to navigate between them.
-
-### Adding Links
-
-To use SPA (Single Page Application) navigation you will need to import the `Link` component from `@tanstack/react-router`.
-
-```tsx
-import { Link } from "@tanstack/react-router";
-```
-
-Then anywhere in your JSX you can use it like so:
-
-```tsx
-<Link to="/about">About</Link>
-```
-
-This will create a link that will navigate to the `/about` route.
-
-More information on the `Link` component can be found in the [Link documentation](https://tanstack.com/router/v1/docs/framework/react/api/router/linkComponent).
-
-### Using A Layout
-
-In the File Based Routing setup the layout is located in `src/routes/__root.tsx`. Anything you add to the root route will appear in all the routes. The route content will appear in the JSX where you render `{children}` in the `shellComponent`.
-
-Here is an example layout that includes a header:
-
-```tsx
-import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
-
-export const Route = createRootRoute({
-  head: () => ({
-    meta: [
-      { charSet: 'utf-8' },
-      { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'My App' },
-    ],
-  }),
-  shellComponent: ({ children }) => (
-    <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        <header>
-          <nav>
-            <Link to="/">Home</Link>
-            <Link to="/about">About</Link>
-          </nav>
-        </header>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  ),
-})
-```
-
-More information on layouts can be found in the [Layouts documentation](https://tanstack.com/router/latest/docs/framework/react/guide/routing-concepts#layouts).
-
-## Server Functions
-
-TanStack Start provides server functions that allow you to write server-side code that seamlessly integrates with your client components.
-
-```tsx
-import { createServerFn } from '@tanstack/react-start'
-
-const getServerTime = createServerFn({
-  method: 'GET',
-}).handler(async () => {
-  return new Date().toISOString()
-})
-
-// Use in a component
-function MyComponent() {
-  const [time, setTime] = useState('')
-  
-  useEffect(() => {
-    getServerTime().then(setTime)
-  }, [])
-  
-  return <div>Server time: {time}</div>
-}
-```
-
-## API Routes
-
-You can create API routes by using the `server` property in your route definitions:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-import { json } from '@tanstack/react-start'
-
-export const Route = createFileRoute('/api/hello')({
-  server: {
-    handlers: {
-      GET: () => json({ message: 'Hello, World!' }),
-    },
-  },
-})
-```
-
-## Data Fetching
-
-There are multiple ways to fetch data in your application. You can use TanStack Query to fetch data from a server. But you can also use the `loader` functionality built into TanStack Router to load the data for a route before it's rendered.
-
-For example:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-
-export const Route = createFileRoute('/people')({
-  loader: async () => {
-    const response = await fetch('https://swapi.dev/api/people')
-    return response.json()
-  },
-  component: PeopleComponent,
-})
-
-function PeopleComponent() {
-  const data = Route.useLoaderData()
-  return (
-    <ul>
-      {data.results.map((person) => (
-        <li key={person.name}>{person.name}</li>
-      ))}
-    </ul>
-  )
-}
-```
-
-Loaders simplify your data fetching logic dramatically. Check out more information in the [Loader documentation](https://tanstack.com/router/latest/docs/framework/react/guide/data-loading#loader-parameters).
-
-
-
-# Learn More
-
-You can learn more about all of the offerings from TanStack in the [TanStack documentation](https://tanstack.com).
-
-For TanStack Start specific documentation, visit [TanStack Start](https://tanstack.com/start).
+The full list, in priority order, is in [`NEXT_STEPS.md`](./NEXT_STEPS.md).

@@ -1,4 +1,4 @@
-import { Box, Button, Flex, Input, Stack, Text } from "@chakra-ui/react";
+import { Alert, Box, Button, Flex, Input, Stack, Text } from "@chakra-ui/react";
 import { useStore } from "@tanstack/react-store";
 import { useLayoutEffect, useRef, useState } from "react";
 import { ActionTimeline } from "#/components/ActionTimeline";
@@ -13,6 +13,7 @@ const STICK_THRESHOLD = 48;
 export function ChatPane() {
 	const entries = useStore(intakeStore, (s) => s.entries);
 	const streaming = useStore(intakeStore, (s) => s.streaming);
+	const handoff = useStore(intakeStore, (s) => s.handoff);
 	const [draft, setDraft] = useState("");
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const stickRef = useRef(true);
@@ -62,6 +63,17 @@ export function ChatPane() {
 
 	return (
 		<Flex direction="column" h="full" minH="0">
+			{handoff.status === "sent" && (
+				<Alert.Root status="success" borderRadius="none">
+					<Alert.Indicator />
+					<Alert.Content>
+						<Alert.Title>
+							The customer-service team has been notified
+						</Alert.Title>
+						<Alert.Description>Reference {handoff.ref}</Alert.Description>
+					</Alert.Content>
+				</Alert.Root>
+			)}
 			<Stack
 				ref={scrollRef}
 				onScroll={onScroll}

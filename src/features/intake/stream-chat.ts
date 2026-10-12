@@ -1,47 +1,47 @@
+import * as R from "ramda";
+
 import type { ChatRequest, IntakeEvent } from "./events";
 import { parseSseStream } from "./sse";
 import {
 	addMessage,
 	appendToLastMessage,
 	applyPatch,
+	clearEdits,
 	finishAction,
 	intakeStore,
+	selectEdits,
 	selectMessages,
+	selectTouched,
 	setHandoff,
+	setRejected,
 	setStreaming,
+	setStrikes,
 	startAction,
 } from "./store";
 
-export const handleEvent = (event: IntakeEvent): void => {
-	switch (event.type) {
-		case "message.delta":
-			appendToLastMessage(event.text);
+type EventOf<T extends IntakeEvent["type"]> = Extract<IntakeEvent, { type: T }>;
 
-			return;
-		case "action.started":
-			startAction({ id: event.id, kind: event.kind, label: event.label });
+/** A `R.cond` branch: runs `handler` for events of one type. */
+const on = <T extends IntakeEvent["type"]>(
+	type: T,
+	handler: (event: EventOf<T>) => void,
+): [(event: IntakeEvent) => boolean, (event: IntakeEvent) => void] => [
+	(event) => event.type === type,
+	(event) => handler(event as EventOf<T>),
+];
 
-			return;
-		case "action.finished":
-			finishAction(event.id, event.ok, event.detail);
-
-			return;
-		case "form.patch":
-			applyPatch(event.patch);
-
-			return;
-		case "handoff.requested":
-			setHandoff(event.ref);
-
-			return;
-		case "error":
-			appendToLastMessage(`\n[error] ${event.message}`);
-
-			return;
-		default:
-			return;
-	}
-};
+/** Maps each server event to a store action. Events with no branch are ignored. */
+export const handleEvent: (event: IntakeEvent) => void = R.cond([
+	on("message.delta", (e) => appendToLastMessage(e.text)),
+	on("action.started", (e) =>
+		startAction({ id: e.id, kind: e.kind, label: e.label }),
+	),
+	on("action.finished", (e) => finishAction(e.id, e.ok, e.detail)),
+	on("form.patch", (e) => applyPatch(e.patch)),
+	on("form.rejected", (e) => setRejected(e.fields)),
+	on("handoff.requested", (e) => setHandoff(e.ref)),
+	on("error", (e) => appendToLastMessage(`\n[error] ${e.message}`)),
+]);
 
 /** Sends a user message plus the current form to the BFF and applies the SSE stream. */
 export const sendChat = async (content: string): Promise<void> => {
@@ -51,13 +51,24 @@ export const sendChat = async (content: string): Promise<void> => {
 
 	addMessage({ role: "user", content });
 
+	const { entries, values, provenance, edits, strikes, handoff } =
+		intakeStore.state;
 	const request: ChatRequest = {
-		messages: selectMessages(intakeStore.state.entries),
-		form: intakeStore.state.values,
+		messages: selectMessages(entries),
+		form: values,
+		touched: selectTouched(provenance),
+		edits: selectEdits(edits),
+		strikes,
+		handoffRef: handoff.ref,
 	};
+
+	clearEdits();
 
 	addMessage({ role: "assistant", content: "" });
 	setStreaming(true);
+
+	let rejected = false;
+	let saved = false;
 
 	try {
 		const response = await fetch("/api/chat", {
@@ -71,8 +82,13 @@ export const sendChat = async (content: string): Promise<void> => {
 		}
 
 		for await (const event of parseSseStream(response.body)) {
+			rejected ||= event.type === "form.rejected";
+			saved ||= event.type === "form.patch";
 			handleEvent(event);
 		}
+
+		// A turn that only produced rejections counts toward offering a human.
+		setStrikes(saved ? 0 : rejected ? strikes + 1 : strikes);
 	} catch (error) {
 		handleEvent({
 			type: "error",

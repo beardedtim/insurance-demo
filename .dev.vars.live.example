@@ -1,0 +1,8 @@
+# Copy to .dev.vars.live (gitignored). Loaded when CLOUDFLARE_ENV=live, i.e. by
+# `pnpm test:e2e:live`. These hit REAL services: use a test Slack channel's webhook.
+TOGETHER_API_KEY=
+SLACK_WEBHOOK_URL=
+# Optional overrides
+# TOGETHER_BASE_URL=https://api.together.xyz/v1
+# TOGETHER_MODEL=meta-llama/Llama-3.3-70B-Instruct-Turbo
+# CHAT_MAX_ROUNDS=3

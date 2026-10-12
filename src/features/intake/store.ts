@@ -1,6 +1,7 @@
 import { Store } from "@tanstack/store";
+import * as R from "ramda";
 
-import type { ActionKind, ActionStatus, ChatMessage } from "./events";
+import type { ActionKind, ActionStatus, ChatMessage, UserEdit } from "./events";
 import { type FieldErrors, type IntakeDraft, validateDraft } from "./schema";
 
 /** Something the agent did, shown inline in the chat. Never sent to the server. */
@@ -15,9 +16,20 @@ export type ActionEntry = {
 
 export type ChatEntry = ChatMessage | ActionEntry;
 
+/** Who last wrote a field. "agent" values are proposals until the user confirms or edits. */
+export type Provenance = "agent" | "user" | "confirmed";
+
 export type IntakeState = {
 	values: IntakeDraft;
 	errors: FieldErrors;
+	/** `section.field` -> who last wrote it. Absent means empty. */
+	provenance: Record<string, Provenance>;
+	/** `section.field` -> why the agent's proposal for it was not saved. */
+	rejected: Record<string, string>;
+	/** Hand edits since the last chat turn, as `section.field` -> first and latest value. */
+	edits: Record<string, { from: unknown; to: unknown }>;
+	/** Consecutive turns where proposals were rejected and nothing was saved. */
+	strikes: number;
 	entries: ChatEntry[];
 	streaming: boolean;
 	handoff: { status: "idle" | "sent"; ref?: string };
@@ -26,26 +38,17 @@ export type IntakeState = {
 export const intakeStore = new Store<IntakeState>({
 	values: {},
 	errors: {},
+	provenance: {},
+	rejected: {},
+	edits: {},
+	strikes: 0,
 	entries: [],
 	streaming: false,
 	handoff: { status: "idle" },
 });
 
-const isPlainObject = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null && !Array.isArray(value);
-
-export const deepMerge = <T>(base: T, patch: unknown): T => {
-	if (!isPlainObject(base) || !isPlainObject(patch)) {
-		return patch === undefined ? base : (patch as T);
-	}
-
-	const entries = Object.entries(patch).map(([key, value]) => [
-		key,
-		deepMerge(base[key], value),
-	]);
-
-	return { ...base, ...Object.fromEntries(entries) } as T;
-};
+/** Patch values win; nested objects merge. */
+export const deepMerge = R.mergeDeepRight;
 
 const withValues = (state: IntakeState, values: IntakeDraft): IntakeState => ({
 	...state,
@@ -53,25 +56,92 @@ const withValues = (state: IntakeState, values: IntakeDraft): IntakeState => ({
 	errors: validateDraft(values),
 });
 
-/** Shared write path: the user and the agent both go through here. */
-export const applyPatch = (patch: IntakeDraft): void => {
-	intakeStore.setState((state) =>
-		withValues(state, deepMerge(state.values, patch)),
+const pathsOf = (patch: IntakeDraft): string[] =>
+	R.chain(
+		([section, values]) =>
+			Object.keys(values ?? {}).map((field) => `${section}.${field}`),
+		Object.entries(patch),
 	);
+
+/** Shared write path for the agent: every field it writes becomes a proposal. */
+export const applyPatch = (patch: IntakeDraft): void => {
+	const paths = pathsOf(patch);
+
+	intakeStore.setState((state) => ({
+		...withValues(state, deepMerge(state.values, patch)),
+		provenance: {
+			...state.provenance,
+			...R.fromPairs(paths.map((path) => [path, "agent" as const])),
+		},
+		rejected: R.omit(paths, state.rejected),
+	}));
 };
 
-/** Sets (or clears, with undefined) a single field. */
+/** Sets (or clears, with undefined) a single field as a user edit. */
 export const setField = <S extends keyof IntakeDraft>(
 	section: S,
 	field: keyof NonNullable<IntakeDraft[S]>,
 	value: unknown,
 ): void => {
+	const path = `${section}.${String(field)}`;
+
+	intakeStore.setState((state) => {
+		const previous = (
+			state.values[section] as Record<string, unknown> | undefined
+		)?.[String(field)];
+		const from = path in state.edits ? state.edits[path]?.from : previous;
+		const cleared = value === undefined;
+
+		return {
+			...withValues(state, {
+				...state.values,
+				[section]: { ...state.values[section], [field]: value },
+			}),
+			provenance: cleared
+				? R.omit([path], state.provenance)
+				: { ...state.provenance, [path]: "user" },
+			rejected: R.omit([path], state.rejected),
+			edits:
+				from === value
+					? R.omit([path], state.edits)
+					: { ...state.edits, [path]: { from, to: value } },
+			strikes: 0,
+		};
+	});
+};
+
+/** The user accepts a proposed value as correct. */
+export const confirmField = (path: string): void => {
 	intakeStore.setState((state) =>
-		withValues(state, {
-			...state.values,
-			[section]: { ...state.values[section], [field]: value },
-		}),
+		state.provenance[path] === "agent"
+			? { ...state, provenance: { ...state.provenance, [path]: "confirmed" } }
+			: state,
 	);
+};
+
+/** Fields the agent must not overwrite unless the user asks: typed or confirmed ones. */
+export const selectTouched = (
+	provenance: IntakeState["provenance"],
+): string[] => R.keys(R.reject(R.equals("agent"), provenance));
+
+export const selectEdits = (edits: IntakeState["edits"]): UserEdit[] =>
+	R.toPairs(edits).map(([path, { from, to }]) => ({ path, from, to }));
+
+/** The agent's proposals that failed validation; shown on the field until it changes. */
+export const setRejected = (fields: Record<string, string>): void => {
+	intakeStore.setState((state) => ({
+		...state,
+		rejected: { ...state.rejected, ...fields },
+	}));
+};
+
+/** Hand edits have been delivered to the agent. */
+export const clearEdits = (): void => {
+	intakeStore.setState((state) => ({ ...state, edits: {} }));
+};
+
+export const setStrikes = (strikes: number): void => {
+	intakeStore.setState((state) => ({ ...state, strikes }));
 };
 
 export const addMessage = (message: ChatMessage): void => {

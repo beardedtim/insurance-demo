@@ -331,6 +331,119 @@ describe("runChat", () => {
 	});
 });
 
+describe("runChat user edits and escalation", () => {
+	const bodyOf = (fetchMock: ReturnType<typeof vi.fn>, call = 0) =>
+		JSON.parse(fetchMock.mock.calls[call]?.[1].body as string);
+
+	it("does not let the agent overwrite a field the user edited", async () => {
+		const fetchMock = stubFetch(
+			sse([toolCall("update_form", { applicant: { garagingState: "NY" } })]),
+			sse([text("Keeping CA")]),
+		);
+		const events = await collect(
+			runChat({
+				messages: [{ role: "user", content: "what do you still need?" }],
+				form: { applicant: { garagingState: "CA" } },
+				touched: ["applicant.garagingState"],
+			}),
+		);
+
+		expect(events.some((e) => e.type === "form.patch")).toBe(false);
+		expect(events).toContainEqual({
+			type: "form.rejected",
+			fields: { "applicant.garagingState": expect.stringContaining("by hand") },
+		});
+		expect(lastToolMessage(fetchMock).content).toContain("nothing was saved");
+	});
+
+	it("allows the change when the user asks for it in their latest message", async () => {
+		stubFetch(
+			sse([toolCall("update_form", { applicant: { garagingState: "NY" } })]),
+			sse([text("Done")]),
+		);
+
+		const events = await collect(
+			runChat({
+				messages: [{ role: "user", content: "change my state to NY" }],
+				form: { applicant: { garagingState: "CA" } },
+				touched: ["applicant.garagingState"],
+			}),
+		);
+
+		expect(events).toContainEqual({
+			type: "form.patch",
+			patch: { applicant: { garagingState: "NY" } },
+		});
+	});
+
+	it("saves the valid fields of a mixed patch and reports the rest", async () => {
+		const fetchMock = stubFetch(
+			sse([
+				toolCall("update_form", { vehicle: { make: "Toyota", year: "nope" } }),
+			]),
+			sse([text("ok")]),
+		);
+		const events = await collect(runChat(request));
+
+		expect(events).toContainEqual({
+			type: "form.patch",
+			patch: { vehicle: { make: "Toyota" } },
+		});
+		expect(events).toContainEqual({
+			type: "form.rejected",
+			fields: { "vehicle.year": expect.any(String) },
+		});
+		expect(lastToolMessage(fetchMock).content).toContain("partially saved");
+	});
+
+	it("tells the model about hand edits and which fields are user-owned", async () => {
+		const fetchMock = stubFetch(sse([text("ok")]));
+
+		await collect(
+			runChat({
+				...request,
+				form: { applicant: { garagingState: "CA" } },
+				touched: ["applicant.garagingState"],
+				edits: [{ path: "applicant.garagingState", from: "NY", to: "CA" }],
+			}),
+		);
+
+		const system = bodyOf(fetchMock).messages[0].content as string;
+
+		expect(system).toContain('applicant.garagingState: "NY" -> "CA"');
+		expect(system).toContain("typed or confirmed");
+	});
+
+	it("tells the model to offer a human after repeated rejected turns", async () => {
+		const quiet = stubFetch(sse([text("ok")]));
+
+		await collect(runChat({ ...request, strikes: 1 }));
+
+		expect(bodyOf(quiet).messages[0].content).not.toContain("Stop guessing");
+
+		const struggling = stubFetch(sse([text("ok")]));
+
+		await collect(runChat({ ...request, strikes: 2 }));
+
+		expect(bodyOf(struggling).messages[0].content).toContain("Stop guessing");
+	});
+
+	it("does not notify Slack twice", async () => {
+		const fetchMock = stubFetch(
+			sse([toolCall("pingSlack", {})]),
+			sse([text("Already did")]),
+		);
+		const events = await collect(runChat({ ...request, handoffRef: "ref-0" }));
+
+		expect(send).not.toHaveBeenCalled();
+		expect(events.some((e) => e.type === "handoff.requested")).toBe(false);
+		expect(events).toContainEqual(
+			expect.objectContaining({ type: "action.finished", ok: true }),
+		);
+		expect(lastToolMessage(fetchMock).content).toContain("already notified");
+	});
+});
+
 describe("enforceLiabilityMinimum", () => {
 	it("flags a saved limit that a state-only patch makes too low", () => {
 		const base = {

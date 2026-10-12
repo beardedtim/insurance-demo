@@ -79,7 +79,23 @@ describe("slack handoff", () => {
 	});
 });
 
+describe("slack handoff in production", () => {
+	it("reports failure instead of pretending when the webhook is unset", async () => {
+		mockEnv.SLACK_WEBHOOK_URL = "";
+		vi.stubEnv("PROD", true);
+
+		const fetchMock = vi.fn();
+
+		vi.stubGlobal("fetch", fetchMock);
+		vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+		expect((await sendHandoffToSlack(payload)).ok).toBe(false);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});
+
 afterEach(() => {
+	vi.unstubAllEnvs();
 	vi.unstubAllGlobals();
 	vi.restoreAllMocks();
 });

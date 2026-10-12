@@ -1,7 +1,13 @@
 import { env } from "cloudflare:workers";
+import * as R from "ramda";
 import { z } from "zod";
 
-import type { ChatRequest, IntakeEvent } from "#/features/intake/events";
+import type {
+	ChatRequest,
+	IntakeEvent,
+	UserEdit,
+} from "#/features/intake/events";
+import { mergeDraft, sanitizePatch } from "#/features/intake/guard";
 import {
 	allowedLiabilityLimitsFor,
 	meetsMinLiability,
@@ -19,6 +25,10 @@ const DEFAULT_MODEL = "meta-llama/Llama-3.3-70B-Instruct-Turbo";
 const DEFAULT_MAX_ROUNDS = 3;
 const FORM_TOOL = "update_form";
 const SLACK_TOOL = "pingSlack";
+
+/** Consecutive rejected turns after which the agent must stop guessing and offer a human. */
+const STRIKE_LIMIT = 2;
+const LIABILITY_PATH = "coverage.liabilityLimit";
 
 const slackArgsSchema = z.object({ reason: z.string().optional() });
 
@@ -99,7 +109,25 @@ const tools = [
 	},
 ];
 
-const systemPrompt = ({ form }: Pick<ChatRequest, "form">): string => {
+type PromptContext = Pick<
+	ChatRequest,
+	"form" | "touched" | "edits" | "strikes"
+>;
+
+const showValue = (value: unknown): string =>
+	value === undefined ? "(empty)" : JSON.stringify(value);
+
+const describeEdits = (edits: UserEdit[]): string =>
+	`The user edited these fields by hand since your last message. Treat the new values as final and do not revert them:\n${edits
+		.map((e) => `- ${e.path}: ${showValue(e.from)} -> ${showValue(e.to)}`)
+		.join("\n")}`;
+
+const systemPrompt = ({
+	form,
+	touched = [],
+	edits = [],
+	strikes = 0,
+}: PromptContext): string => {
 	const errors = Object.entries(validateComplete(form));
 	const open = errors.length
 		? errors.map(([path, message]) => `- ${path}: ${message}`).join("\n")
@@ -109,9 +137,17 @@ const systemPrompt = ({ form }: Pick<ChatRequest, "form">): string => {
 		"You are an assistant that helps a user fill out a car insurance intake form through conversation.",
 		`Call the ${FORM_TOOL} tool whenever the user gives you a value for a field. Never guess values the user has not stated.`,
 		"Ask for missing or invalid fields one or two at a time, and keep replies short and friendly.",
+		'When to ask, infer or escalate: infer only what the user\'s own words already imply (for example "my Honda Civic" gives make Honda and model Civic). If a value would be a guess, ask instead. If the user seems confused, gives conflicting information you cannot reconcile, or asks for something this form does not cover, do not invent values: ask one clarifying question or offer to connect them with a human.',
 		"The form values below are the source of truth, even if the conversation says something different (the user may have edited the form by hand).",
 		`If a form value differs from what was said earlier in the conversation, do NOT change the form to match the conversation and do NOT call ${FORM_TOOL} to revert it. Keep the form value and briefly point out the difference once, e.g. "You told me NY and I entered NY, but the form now says CA. I'll go with CA, just flagging it."`,
 		`Only call ${FORM_TOOL} on a field that already has a different value if the user explicitly asks for that change in their latest message.`,
+		touched.length
+			? `Fields the user typed or confirmed (the server rejects changes to these unless the user's latest message states the new value): ${touched.join(", ")}`
+			: "",
+		edits.length ? describeEdits(edits) : "",
+		strikes >= STRIKE_LIMIT
+			? "Several of your recent proposals were rejected and nothing was saved. Stop guessing: tell the user briefly what is blocking progress and offer to connect them with a human. Call pingSlack only if they accept."
+			: "",
 		`Current form values (JSON): ${JSON.stringify(form)}`,
 		`Rules for this application (follow them when offering options):\n${rulesSummaryFor(
 			form.applicant?.garagingState,
@@ -119,7 +155,9 @@ const systemPrompt = ({ form }: Pick<ChatRequest, "form">): string => {
 			.map((rule) => `- ${rule}`)
 			.join("\n")}`,
 		`Open issues:\n${open}`,
-	].join("\n\n");
+	]
+		.filter(Boolean)
+		.join("\n\n");
 };
 
 /** Short, last-in-context restatement of the rules; recent messages outweigh a poisoned history. */
@@ -167,11 +205,10 @@ async function* readChunks(body: ReadableStream<Uint8Array>) {
 	}
 }
 
-const parsePatch = (call: ToolCall): IntakeDraft | undefined => {
+/** The raw tool arguments; undefined when the model sent unparseable JSON. */
+const parseArgs = (call: ToolCall): unknown => {
 	try {
-		const parsed = intakeDraftSchema.partial().safeParse(JSON.parse(call.args));
-
-		return parsed.success ? parsed.data : undefined;
+		return JSON.parse(call.args || "{}");
 	} catch {
 		return undefined;
 	}
@@ -185,19 +222,6 @@ const parseReason = (call: ToolCall): string | undefined => {
 	} catch {
 		return undefined;
 	}
-};
-
-const mergeDraft = (base: IntakeDraft, patch: IntakeDraft): IntakeDraft => {
-	const merged: Record<string, unknown> = { ...base };
-
-	for (const [section, values] of Object.entries(patch)) {
-		merged[section] = {
-			...(base as Record<string, object>)[section],
-			...values,
-		};
-	}
-
-	return merged as IntakeDraft;
 };
 
 /**
@@ -234,11 +258,13 @@ export const enforceLiabilityMinimum = (
 
 /** Lists the changed fields, e.g. "driver.name, driver.email". */
 const describePatch = (patch: IntakeDraft): string =>
-	Object.entries(patch)
-		.flatMap(([section, values]) =>
-			Object.keys(values ?? {}).map((field) => `${section}.${field}`),
-		)
-		.join(", ");
+	R.pipe(
+		R.toPairs,
+		R.chain(([section, values]: [string, object | undefined]) =>
+			R.keys(values ?? {}).map((field) => `${section}.${field}`),
+		),
+		R.join(", "),
+	)(patch);
 
 /**
  * Streams a Together.AI chat completion as `IntakeEvent`s. Text deltas become
@@ -249,10 +275,18 @@ const describePatch = (patch: IntakeDraft): string =>
 export async function* runChat({
 	messages,
 	form,
+	touched,
+	edits,
+	strikes,
+	handoffRef,
 }: ChatRequest): AsyncGenerator<IntakeEvent> {
 	const { apiKey, url, model, maxRounds } = readConfig();
+	const latestUserMessage = [...messages]
+		.reverse()
+		.find((m) => m.role === "user")?.content;
 
 	let current = form;
+	let notifiedRef = handoffRef;
 	let spoke = false;
 
 	const history: TogetherMessage[] = messages.filter((m) => m.content);
@@ -267,7 +301,10 @@ export async function* runChat({
 			body: JSON.stringify({
 				model,
 				messages: [
-					{ role: "system", content: systemPrompt({ form: current }) },
+					{
+						role: "system",
+						content: systemPrompt({ form: current, touched, edits, strikes }),
+					},
 					...history,
 					rulesReminder(current),
 				],
@@ -337,6 +374,24 @@ export async function* runChat({
 					label: "Notifying the customer-service team",
 				};
 
+				if (notifiedRef) {
+					yield {
+						type: "action.finished",
+						id,
+						ok: true,
+						detail: `Already sent (reference ${notifiedRef})`,
+					};
+
+					history.push({
+						role: "tool",
+						tool_call_id: call.id,
+						content:
+							"ok: the team was already notified earlier in this conversation. Tell the user, and do not call pingSlack again",
+					});
+
+					continue;
+				}
+
 				const result = await sendHandoffToSlack({
 					reason: parseReason(call),
 					messages,
@@ -348,6 +403,8 @@ export async function* runChat({
 				});
 
 				if (result?.ok) {
+					notifiedRef = result.ref;
+
 					yield { type: "handoff.requested", ref: result.ref };
 				}
 
@@ -378,39 +435,79 @@ export async function* runChat({
 				label: "Updating the form",
 			};
 
-			const parsedPatch = parsePatch(call);
+			const raw = parseArgs(call);
 			const previousState = current.applicant?.garagingState;
-			const { patch, rejection } = parsedPatch
-				? enforceLiabilityMinimum(current, parsedPatch)
-				: { patch: undefined, rejection: undefined };
+			const sanitized = sanitizePatch({
+				base: current,
+				raw,
+				protectedPaths: touched,
+				latestUserMessage,
+			});
+			const { patch, rejection } = enforceLiabilityMinimum(
+				current,
+				sanitized.patch,
+			);
+			const droppedLiability =
+				sanitized.patch.coverage?.liabilityLimit &&
+				!patch.coverage?.liabilityLimit;
+			const rejected = {
+				...sanitized.rejected,
+				...(rejection && droppedLiability
+					? { [LIABILITY_PATH]: rejection }
+					: {}),
+			};
+			const rejectedPaths = Object.keys(rejected);
+			const saved = describePatch(patch);
 
-			if (patch) {
+			if (saved) {
 				current = mergeDraft(current, patch);
 
 				yield { type: "form.patch", patch };
 			}
 
+			if (rejectedPaths.length) {
+				yield { type: "form.rejected", fields: rejected };
+			}
+
 			yield {
 				type: "action.finished",
 				id,
-				ok: Boolean(patch),
-				detail: patch ? describePatch(patch) : "Invalid values, nothing saved",
+				ok: Boolean(saved),
+				detail: saved
+					? saved
+					: rejectedPaths.length
+						? `Rejected ${rejectedPaths.join(", ")}`
+						: "Invalid values, nothing saved",
 			};
 
 			const nextState = current.applicant?.garagingState;
 			const stateNote =
-				patch && nextState !== previousState
+				saved && nextState !== previousState
 					? ` State is now ${nextState ?? "unset"}; allowed liability limits are: ${allowedLiabilityLimitsFor(nextState).join(", ")}.`
 					: "";
+			const rejectedNote = rejectedPaths.length
+				? ` Not saved: ${Object.entries(rejected)
+						.map(([path, message]) => `${path} (${message})`)
+						.join("; ")}.`
+				: "";
+			const conflictNote = sanitized.conflicts.length
+				? ` Open conflicts to ask the user about: ${sanitized.conflicts.join("; ")}.`
+				: "";
+			const keptRejection =
+				rejection && !droppedLiability ? ` ${rejection}` : "";
+			const notes = `${rejectedNote}${keptRejection}${stateNote}${conflictNote}`;
 
 			history.push({
 				role: "tool",
 				tool_call_id: call.id,
-				content: rejection
-					? `partially saved. ${rejection}${stateNote}`
-					: patch
-						? `ok${stateNote ? `.${stateNote}` : ""}`
-						: "error: invalid arguments, nothing was saved",
+				content:
+					raw === undefined
+						? "error: invalid arguments, nothing was saved"
+						: !saved && rejectedPaths.length
+							? `error: nothing was saved.${notes}`
+							: rejectedPaths.length || rejection
+								? `partially saved.${notes}`
+								: `ok${notes ? `.${notes}` : ""}`,
 			});
 		}
 	}

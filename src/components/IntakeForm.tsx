@@ -46,6 +46,7 @@ export function IntakeForm() {
 		<Stack gap="8" p="6">
 			<Section title="Applicant">
 				<TextField
+					path="applicant.fullName"
 					label="Full name"
 					required
 					value={applicant?.fullName}
@@ -53,6 +54,7 @@ export function IntakeForm() {
 					onChange={(v) => setField("applicant", "fullName", v)}
 				/>
 				<TextField
+					path="applicant.dateOfBirth"
 					label="Date of birth"
 					type="date"
 					required
@@ -60,7 +62,17 @@ export function IntakeForm() {
 					error={errors["applicant.dateOfBirth"]}
 					onChange={(v) => setField("applicant", "dateOfBirth", v)}
 				/>
+				<TextField
+					path="applicant.email"
+					label="Email"
+					type="email"
+					required
+					value={applicant?.email}
+					error={errors["applicant.email"]}
+					onChange={(v) => setField("applicant", "email", v)}
+				/>
 				<SelectField
+					path="applicant.garagingState"
 					label="Garaging state"
 					required
 					value={applicant?.garagingState}
@@ -72,6 +84,7 @@ export function IntakeForm() {
 
 			<Section title="Vehicle">
 				<NumberField
+					path="vehicle.year"
 					label="Year"
 					required
 					value={vehicle?.year}
@@ -79,6 +92,7 @@ export function IntakeForm() {
 					onChange={(v) => setField("vehicle", "year", v)}
 				/>
 				<TextField
+					path="vehicle.make"
 					label="Make"
 					required
 					value={vehicle?.make}
@@ -86,6 +100,7 @@ export function IntakeForm() {
 					onChange={(v) => setField("vehicle", "make", v)}
 				/>
 				<TextField
+					path="vehicle.model"
 					label="Model"
 					required
 					value={vehicle?.model}
@@ -93,6 +108,7 @@ export function IntakeForm() {
 					onChange={(v) => setField("vehicle", "model", v)}
 				/>
 				<NumberField
+					path="vehicle.annualMileage"
 					label="Estimated annual mileage"
 					required
 					value={vehicle?.annualMileage}
@@ -100,6 +116,7 @@ export function IntakeForm() {
 					onChange={(v) => setField("vehicle", "annualMileage", v)}
 				/>
 				<SelectField
+					path="vehicle.ownership"
 					label="Ownership status"
 					required
 					value={vehicle?.ownership}
@@ -111,6 +128,7 @@ export function IntakeForm() {
 
 			<Section title="Coverage">
 				<SelectField
+					path="coverage.liabilityLimit"
 					label={`Liability limit (min ${minLiabilityFor(applicant?.garagingState)})`}
 					required
 					value={coverage?.liabilityLimit}
@@ -119,6 +137,7 @@ export function IntakeForm() {
 					onChange={(v) => setField("coverage", "liabilityLimit", v)}
 				/>
 				<SelectField
+					path="coverage.collisionDeductible"
 					label="Collision deductible"
 					required
 					value={coverage?.collisionDeductible}
@@ -128,6 +147,7 @@ export function IntakeForm() {
 				/>
 				<Box alignSelf="end">
 					<SwitchField
+						path="coverage.roadsideAssistance"
 						label="Roadside assistance"
 						checked={coverage?.roadsideAssistance ?? false}
 						onChange={(v) => setField("coverage", "roadsideAssistance", v)}
@@ -137,6 +157,7 @@ export function IntakeForm() {
 
 			<Section title="Claims history">
 				<NumberField
+					path="claims.atFaultClaims"
 					label="At-fault claims (past 5 years)"
 					required
 					value={claims?.atFaultClaims}
@@ -150,6 +171,7 @@ export function IntakeForm() {
 					}}
 				/>
 				<TextField
+					path="claims.mostRecentClaimDate"
 					label="Most recent claim date"
 					type="date"
 					required={(claims?.atFaultClaims ?? 0) > 0}

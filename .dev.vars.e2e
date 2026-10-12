@@ -1,0 +1,6 @@
+# Loaded instead of .dev.vars when CLOUDFLARE_ENV=e2e. Only points at the local mock
+# server (e2e/mock-server.ts); never put a real key or webhook here.
+TOGETHER_API_KEY=e2e-key
+TOGETHER_BASE_URL=http://127.0.0.1:4010/v1
+SLACK_WEBHOOK_URL=http://127.0.0.1:4010/slack
+CHAT_MAX_ROUNDS=3

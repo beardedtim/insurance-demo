@@ -30,25 +30,25 @@ pnpm dev                         # http://localhost:3000
 
 Set in `.dev.vars` locally and with `wrangler secret put` in production.
 
-| Variable | Required | Purpose |
-| --- | --- | --- |
-| `TOGETHER_API_KEY` | yes | Together.AI key. Chat fails without it. |
+| Variable            | Required    | Purpose                                                                                                              |
+| ------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------- |
+| `TOGETHER_API_KEY`  | yes         | Together.AI key. Chat fails without it.                                                                              |
 | `SLACK_WEBHOOK_URL` | for handoff | Slack incoming webhook. Unset in dev, the handoff is logged to the console; unset in production, it reports failure. |
-| `TOGETHER_BASE_URL` | no | Any OpenAI-compatible endpoint. Default `https://api.together.xyz/v1`. |
-| `TOGETHER_MODEL` | no | Default `meta-llama/Llama-3.3-70B-Instruct-Turbo`. |
-| `CHAT_MAX_ROUNDS` | no | Cap on tool-call rounds per turn. Default 3. |
+| `TOGETHER_BASE_URL` | no          | Any OpenAI-compatible endpoint. Default `https://api.together.xyz/v1`.                                               |
+| `TOGETHER_MODEL`    | no          | Default `meta-llama/Llama-3.3-70B-Instruct-Turbo`.                                                                   |
+| `CHAT_MAX_ROUNDS`   | no          | Cap on tool-call rounds per turn. Default 3.                                                                         |
 
 ## Scripts
 
-| Command | What it does |
-| --- | --- |
-| `pnpm dev` | Dev server on port 3000. |
-| `pnpm build` / `pnpm preview` | Production build, and a local preview of it. |
-| `pnpm test` | Unit tests (Vitest). |
-| `pnpm test:e2e` | Playwright against a scripted model and a fake Slack. Deterministic, no keys needed. |
-| `pnpm test:e2e:live` | Playwright against the real model and a real Slack webhook. Needs `.dev.vars.live` (copy `.dev.vars.live.example`); uses tokens and posts to Slack, so point it at a test channel. |
-| `pnpm check` / `pnpm lint` / `pnpm format` | [Biome](https://biomejs.dev/). |
-| `pnpm deploy` | Build and `wrangler deploy`. |
+| Command                                    | What it does                                                                                                                                                                       |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`                                 | Dev server on port 3000.                                                                                                                                                           |
+| `pnpm build` / `pnpm preview`              | Production build, and a local preview of it.                                                                                                                                       |
+| `pnpm test`                                | Unit tests (Vitest).                                                                                                                                                               |
+| `pnpm test:e2e`                            | Playwright against a scripted model and a fake Slack. Deterministic, no keys needed.                                                                                               |
+| `pnpm test:e2e:live`                       | Playwright against the real model and a real Slack webhook. Needs `.dev.vars.live` (copy `.dev.vars.live.example`); uses tokens and posts to Slack, so point it at a test channel. |
+| `pnpm check` / `pnpm lint` / `pnpm format` | [Biome](https://biomejs.dev/).                                                                                                                                                     |
+| `pnpm deploy`                              | Build and `wrangler deploy`.                                                                                                                                                       |
 
 ## Demo scenarios
 
@@ -96,3 +96,22 @@ Styling is Chakra UI v3 with theme tokens only, and code style is enforced by Bi
 - Slack is outbound only; there are no replies back into the chat.
 
 The full list, in priority order, is in [`NEXT_STEPS.md`](./NEXT_STEPS.md).
+
+## Trade-Offs
+
+1. Custom SSE vs OpenAI Compat
+
+- This was chosen so that I could drive the UI separate from an actual LLM. This allows us to be completely decoupled from the API itself
+  that is called under the hood while still allowing the UI to react to the _state_ the server is going through
+
+2. TanStack vs CSR React App
+
+- This is just habit for me via `pnpm create cloudflare@latest`. Most of my personal projects are on Cloudflare due to their generous free
+  tier and the ease at which you can use `node_compat` to self-host a Docker image
+
+3. Together + Model
+
+- I had ~a few credits on Together, so I chose the _cheapest_ model that could do
+  1. Tool calling
+  2. Serverless
+  3. JSON Output

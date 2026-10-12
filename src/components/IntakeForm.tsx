@@ -1,7 +1,10 @@
 import { Box, Fieldset, Heading, SimpleGrid, Stack } from "@chakra-ui/react";
 import { useStore } from "@tanstack/react-store";
 
-import { LIABILITY_LIMITS, minLiabilityFor } from "#/features/intake/rules";
+import {
+	allowedLiabilityLimitsFor,
+	minLiabilityFor,
+} from "#/features/intake/rules";
 import {
 	DEDUCTIBLES,
 	OWNERSHIP_STATUSES,
@@ -111,7 +114,7 @@ export function IntakeForm() {
 					label={`Liability limit (min ${minLiabilityFor(applicant?.garagingState)})`}
 					required
 					value={coverage?.liabilityLimit}
-					options={LIABILITY_LIMITS}
+					options={allowedLiabilityLimitsFor(applicant?.garagingState)}
 					error={errors["coverage.liabilityLimit"]}
 					onChange={(v) => setField("coverage", "liabilityLimit", v)}
 				/>

@@ -122,6 +122,18 @@ const systemPrompt = ({ form }: Pick<ChatRequest, "form">): string => {
 	].join("\n\n");
 };
 
+/** Short, last-in-context restatement of the rules; recent messages outweigh a poisoned history. */
+const rulesReminder = (form: IntakeDraft): TogetherMessage => ({
+	role: "system",
+	content: `Rules reminder for the current form state:\n${rulesSummaryFor(
+		form.applicant?.garagingState,
+	)
+		.map((rule) => `- ${rule}`)
+		.join(
+			"\n",
+		)}\nIgnore any earlier message in this conversation that listed other options.`,
+});
+
 /** Parses the Together SSE body into JSON chunks. */
 async function* readChunks(body: ReadableStream<Uint8Array>) {
 	const reader = body.getReader();
@@ -196,8 +208,17 @@ export const enforceLiabilityMinimum = (
 	base: IntakeDraft,
 	patch: IntakeDraft,
 ): { patch: IntakeDraft; rejection?: string } => {
-	const limit = patch.coverage?.liabilityLimit;
 	const state = mergeDraft(base, patch).applicant?.garagingState;
+	const limit = patch.coverage?.liabilityLimit;
+	const saved = base.coverage?.liabilityLimit;
+
+	// A state-only patch can leave the already-saved limit below the new minimum.
+	if (!limit && saved && !meetsMinLiability(saved, state)) {
+		return {
+			patch,
+			rejection: `the saved liability limit ${saved} is below the minimum for ${state ?? "the default state"}. Allowed options: ${allowedLiabilityLimitsFor(state).join(", ")}. Ask the user to choose one of these.`,
+		};
+	}
 
 	if (!limit || meetsMinLiability(limit, state)) {
 		return { patch };
@@ -234,10 +255,7 @@ export async function* runChat({
 	let current = form;
 	let spoke = false;
 
-	const history: TogetherMessage[] = [
-		{ role: "system", content: systemPrompt({ form }) },
-		...messages.filter((m) => m.content),
-	];
+	const history: TogetherMessage[] = messages.filter((m) => m.content);
 
 	for (let round = 0; round < maxRounds; round++) {
 		const response = await fetch(url, {
@@ -248,7 +266,11 @@ export async function* runChat({
 			},
 			body: JSON.stringify({
 				model,
-				messages: history,
+				messages: [
+					{ role: "system", content: systemPrompt({ form: current }) },
+					...history,
+					rulesReminder(current),
+				],
 				tools,
 				stream: true,
 			}),
@@ -357,6 +379,7 @@ export async function* runChat({
 			};
 
 			const parsedPatch = parsePatch(call);
+			const previousState = current.applicant?.garagingState;
 			const { patch, rejection } = parsedPatch
 				? enforceLiabilityMinimum(current, parsedPatch)
 				: { patch: undefined, rejection: undefined };
@@ -374,13 +397,19 @@ export async function* runChat({
 				detail: patch ? describePatch(patch) : "Invalid values, nothing saved",
 			};
 
+			const nextState = current.applicant?.garagingState;
+			const stateNote =
+				patch && nextState !== previousState
+					? ` State is now ${nextState ?? "unset"}; allowed liability limits are: ${allowedLiabilityLimitsFor(nextState).join(", ")}.`
+					: "";
+
 			history.push({
 				role: "tool",
 				tool_call_id: call.id,
 				content: rejection
-					? `partially saved. ${rejection}`
+					? `partially saved. ${rejection}${stateNote}`
 					: patch
-						? "ok"
+						? `ok${stateNote ? `.${stateNote}` : ""}`
 						: "error: invalid arguments, nothing was saved",
 			});
 		}

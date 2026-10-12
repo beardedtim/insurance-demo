@@ -44,6 +44,9 @@ const fieldWords = (path: string): string[] =>
 		R.split(" "),
 	)(path);
 
+const NEGATION =
+	/\b(no|not|without|remove|drop|disable|cancel|don't|dont|off)\b/;
+
 /**
  * Did the user's latest message actually state this value? A conservative text match:
  * a miss makes the agent ask, which is the safe failure for a field the user typed.
@@ -56,7 +59,9 @@ export const userStatedValue = (
 	const text = message.toLowerCase().replaceAll(",", "");
 
 	if (typeof value === "boolean") {
-		return fieldWords(path).some((word) => text.includes(word));
+		const mentioned = fieldWords(path).some((word) => text.includes(word));
+
+		return mentioned && NEGATION.test(text) !== value;
 	}
 
 	return text.includes(String(value).toLowerCase());
@@ -105,6 +110,8 @@ export const sanitizePatch = ({
 		const shape = SHAPES[section];
 
 		if (!shape || !isRecord(fields)) {
+			rejected[section] = "Unknown or malformed section";
+
 			continue;
 		}
 

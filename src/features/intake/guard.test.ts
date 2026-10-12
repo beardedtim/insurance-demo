@@ -16,14 +16,35 @@ describe("sanitizePatch", () => {
 		expect(Object.keys(result.rejected)).toEqual(["vehicle.year"]);
 	});
 
-	it("ignores blank values and unknown sections", () => {
+	it("ignores blank values and rejects unknown sections", () => {
 		const result = sanitizePatch({
 			base: {},
 			raw: { vehicle: { make: null, model: "" }, secrets: { a: 1 } },
 			today,
 		});
 
-		expect(result).toEqual({ patch: {}, rejected: {}, conflicts: [] });
+		expect(result).toEqual({
+			patch: {},
+			rejected: { secrets: "Unknown or malformed section" },
+			conflicts: [],
+		});
+	});
+
+	it("requires a boolean restatement to match the proposed direction", () => {
+		const input = {
+			base: { coverage: { roadsideAssistance: true } },
+			protectedPaths: ["coverage.roadsideAssistance"],
+			raw: { coverage: { roadsideAssistance: false } },
+			today,
+		};
+
+		expect(
+			sanitizePatch({ ...input, latestUserMessage: "what is roadside?" })
+				.rejected,
+		).toHaveProperty("coverage.roadsideAssistance");
+		expect(
+			sanitizePatch({ ...input, latestUserMessage: "remove roadside" }).patch,
+		).toEqual({ coverage: { roadsideAssistance: false } });
 	});
 
 	it("rejects a malformed email", () => {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	applyPatch,
@@ -10,7 +10,8 @@ import {
 	selectTouched,
 	setField,
 } from "./store";
-import { handleEvent } from "./stream-chat";
+import { encodeSse } from "./sse";
+import { handleEvent, sendChat } from "./stream-chat";
 
 beforeEach(() => {
 	intakeStore.setState(() => ({
@@ -218,6 +219,71 @@ describe("rejected proposals and strikes", () => {
 	it("resets the strike count when the user edits a field", () => {
 		intakeStore.setState((state) => ({ ...state, strikes: 2 }));
 		setField("vehicle", "make", "Honda");
+
+		expect(intakeStore.state.strikes).toBe(0);
+	});
+});
+
+describe("sendChat", () => {
+	const streamOf = (...events: Parameters<typeof encodeSse>[0][]): Response =>
+		new Response(events.map(encodeSse).join(""));
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("keeps hand edits when the request fails", async () => {
+		setField("vehicle", "make", "Honda");
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("nope", { status: 500 })),
+		);
+
+		await sendChat("hi");
+
+		expect(intakeStore.state.edits).toEqual({
+			"vehicle.make": { from: undefined, to: "Honda" },
+		});
+	});
+
+	it("clears hand edits once the server has responded", async () => {
+		setField("vehicle", "make", "Honda");
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => streamOf({ type: "message.done" })),
+		);
+
+		await sendChat("hi");
+
+		expect(intakeStore.state.edits).toEqual({});
+	});
+
+	it("counts a failed action with no saved patch as a strike", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				streamOf({ type: "action.finished", id: "a", ok: false }),
+			),
+		);
+
+		await sendChat("hi");
+
+		expect(intakeStore.state.strikes).toBe(1);
+	});
+
+	it("resets strikes when a patch is saved", async () => {
+		intakeStore.setState((state) => ({ ...state, strikes: 2 }));
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				streamOf(
+					{ type: "action.finished", id: "a", ok: false },
+					{ type: "form.patch", patch: { vehicle: { make: "Honda" } } },
+				),
+			),
+		);
+
+		await sendChat("hi");
 
 		expect(intakeStore.state.strikes).toBe(0);
 	});

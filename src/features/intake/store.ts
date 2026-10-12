@@ -135,6 +135,14 @@ export const setRejected = (fields: Record<string, string>): void => {
 	}));
 };
 
+/** A turn failed before the agent saw these edits; keep them for the next one. */
+export const restoreEdits = (previous: IntakeState["edits"]): void => {
+	intakeStore.setState((state) => ({
+		...state,
+		edits: { ...previous, ...state.edits },
+	}));
+};
+
 /** Hand edits have been delivered to the agent. */
 export const clearEdits = (): void => {
 	intakeStore.setState((state) => ({ ...state, edits: {} }));

@@ -9,6 +9,7 @@ import {
 	clearEdits,
 	finishAction,
 	intakeStore,
+	restoreEdits,
 	selectEdits,
 	selectMessages,
 	selectTouched,
@@ -68,6 +69,7 @@ export const sendChat = async (content: string): Promise<void> => {
 	setStreaming(true);
 
 	let rejected = false;
+	let failed = false;
 	let saved = false;
 
 	try {
@@ -83,13 +85,15 @@ export const sendChat = async (content: string): Promise<void> => {
 
 		for await (const event of parseSseStream(response.body)) {
 			rejected ||= event.type === "form.rejected";
+			failed ||= event.type === "action.finished" && !event.ok;
 			saved ||= event.type === "form.patch";
 			handleEvent(event);
 		}
 
-		// A turn that only produced rejections counts toward offering a human.
-		setStrikes(saved ? 0 : rejected ? strikes + 1 : strikes);
+		// A turn that only produced rejections or failed actions counts toward offering a human.
+		setStrikes(saved ? 0 : rejected || failed ? strikes + 1 : strikes);
 	} catch (error) {
+		restoreEdits(edits);
 		handleEvent({
 			type: "error",
 			message: error instanceof Error ? error.message : "Unknown error",

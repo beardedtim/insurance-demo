@@ -19,16 +19,7 @@ pnpm build
 
 ## Styling
 
-This project uses [Tailwind CSS](https://tailwindcss.com/) for styling.
-
-### Removing Tailwind CSS
-
-If you prefer not to use Tailwind CSS:
-
-1. Remove the demo pages in `src/routes/demo/`
-2. Replace the Tailwind import in `src/styles.css` with your own styles
-3. Remove `tailwindcss()` from the plugins array in `vite.config.ts`
-4. Remove `@tailwindcss/vite` and `tailwindcss` from `package.json`
+This project uses [Chakra UI v3](https://chakra-ui.com/) for styling. Theme tokens live in `src/theme/system.ts`.
 
 ## Linting & Formatting
 

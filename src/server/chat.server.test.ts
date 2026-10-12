@@ -78,6 +78,20 @@ afterEach(() => {
 });
 
 describe("runChat", () => {
+	it("tells the model the form is the source of truth", async () => {
+		const fetchMock = stubFetch(sse([text("ok")]));
+		const form = { applicant: { garagingState: "CA" as const } };
+
+		await collect(runChat({ ...request, form }));
+
+		const body = JSON.parse(fetchMock.mock.calls[0]?.[1].body as string);
+		const system = body.messages[0].content as string;
+
+		expect(system).toContain("source of truth");
+		expect(system).toContain("point out the difference");
+		expect(system).toContain(JSON.stringify(form));
+	});
+
 	it("streams text deltas then message.done and done", async () => {
 		stubFetch(sse([text("Hello "), text("there")]));
 

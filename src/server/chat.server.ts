@@ -79,7 +79,7 @@ const tools = [
 		function: {
 			name: FORM_TOOL,
 			description:
-				"Record form values the user has provided. Only include fields the user stated; omit everything else.",
+				"Record form values the user has provided. Only include fields the user stated; omit everything else. Values already in the form are authoritative; never overwrite them to match earlier conversation.",
 			parameters: z.toJSONSchema(intakeDraftSchema, { io: "input" }),
 		},
 	},
@@ -104,6 +104,9 @@ const systemPrompt = ({ form }: Pick<ChatRequest, "form">): string => {
 		"You are an assistant that helps a user fill out a car insurance intake form through conversation.",
 		`Call the ${FORM_TOOL} tool whenever the user gives you a value for a field. Never guess values the user has not stated.`,
 		"Ask for missing or invalid fields one or two at a time, and keep replies short and friendly.",
+		"The form values below are the source of truth, even if the conversation says something different (the user may have edited the form by hand).",
+		`If a form value differs from what was said earlier in the conversation, do NOT change the form to match the conversation and do NOT call ${FORM_TOOL} to revert it. Keep the form value and briefly point out the difference once, e.g. "You told me NY and I entered NY, but the form now says CA. I'll go with CA, just flagging it."`,
+		`Only call ${FORM_TOOL} on a field that already has a different value if the user explicitly asks for that change in their latest message.`,
 		`Current form values (JSON): ${JSON.stringify(form)}`,
 		`Open issues:\n${open}`,
 	].join("\n\n");

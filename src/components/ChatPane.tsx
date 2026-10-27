@@ -1,4 +1,13 @@
-import { Alert, Box, Button, Flex, Input, Stack, Text } from "@chakra-ui/react";
+import {
+	Alert,
+	Box,
+	Button,
+	EmptyState,
+	Flex,
+	Input,
+	Stack,
+	Text,
+} from "@chakra-ui/react";
 import { useStore } from "@tanstack/react-store";
 import { useLayoutEffect, useRef, useState } from "react";
 import { ActionTimeline } from "#/components/ActionTimeline";
@@ -83,6 +92,15 @@ export function ChatPane() {
 				gap="4"
 				p="4"
 			>
+				{entries.length === 0 && (
+					<EmptyState.Root flex="1">
+						<EmptyState.Content>
+							<EmptyState.Title>
+								Ask me to help you fill out the form
+							</EmptyState.Title>
+						</EmptyState.Content>
+					</EmptyState.Root>
+				)}
 				{entries.map((entry, index) =>
 					entry.role === "action" ? (
 						<ActionTimeline key={entry.id} action={entry} />

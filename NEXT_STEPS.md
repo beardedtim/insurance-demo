@@ -1,6 +1,6 @@
 # Next Steps
 
-What is still missing versus `technical.pdf`, in the order to do it. P0 first; keep the last hour for the P2 written deliverables.
+What is still missing versus the technical spec, in the order to do it. P0 first; keep the last hour for the P2 written deliverables.
 
 ## Already done
 
@@ -14,11 +14,13 @@ What is still missing versus `technical.pdf`, in the order to do it. P0 first; k
 - Escalation: the ask / infer / escalate prompt rule plus a strike counter that makes the agent offer a human after repeated rejected proposals.
 - Handoff UX: the UI shows the sent reference, duplicate pings are blocked, and Slack reports failure in production when the webhook is unset.
 - Slack webhook handoff with transcript, form and open issues (`slack.server.ts`).
+- `README.md` replaced: setup, env vars, scripts, demo scenarios, deploy, left-out list and trade-offs.
+- Written up in the README: field states and how the UI shows them, where validation runs and what happens to a rejected proposal, and when the agent asks, infers or escalates.
 - Tests for the chat loop, guard, Slack, SSE, store and rules, plus Playwright e2e for the form and the three demos (`e2e/mock`, `e2e/live`).
 
 ## P0: demo evidence (required by the spec)
 
-1. **Run the three required demos with real Together and Slack keys** (`e2e/live`): conversation fills the form; edit a field and the agent respects it; request a human and Slack gets the transcript plus the partial form. Capture screenshots or a GIF for the README.
+1. **Run the three required demos with real Together and Slack keys** (`e2e/live`): conversation fills the form; edit a field and the agent respects it; request a human and Slack gets the transcript plus the partial form. Capture screenshots or a GIF and fill the `TODO` in the README demo section.
 
 ## P1: security (the spec asks you to consider these)
 
@@ -29,15 +31,12 @@ What is still missing versus `technical.pdf`, in the order to do it. P0 first; k
 
 ## P2: written deliverables (a substantial part of what is read)
 
-6. **Replace `README.md`.** It is still the TanStack template. Include local setup (`pnpm install`, `.dev.vars` from `.dev.vars.example`, `pnpm dev`, `pnpm test`), env vars, how to demo the three scenarios, and a note on what was left out and what you would do next.
-7. **Design decisions and tradeoffs.** Answer each spec prompt explicitly:
-   - Backend choice (TanStack Start on Cloudflare Workers) and tradeoffs against Node/Express or FastAPI.
+6. ~~Replace `README.md`.~~ Done. Remaining: the demo screenshots (step 1).
+7. **Design decisions and tradeoffs.** Answer each spec prompt explicitly. Done: field states, validation and rejected proposals, ask / infer / escalate (README). Still to write:
+   - Backend choice (TanStack Start on Cloudflare Workers) and tradeoffs against Node/Express or FastAPI. The README Trade-Offs section only gives the reasons for the choice, not the comparison.
    - Field-level patches vs the whole document, the wire format, and keeping model output conformant (zod to JSON schema tool, `sanitizePatch`).
-   - How user edits re-enter context and what the agent may do with touched fields.
-   - Field states and how the UI shows them.
-   - Where validation runs and what happens when the model proposes an invalid value.
-   - When to ask, infer or escalate.
-   - Security: PII, prompt injection, rate limiting, secrets.
+   - How user edits re-enter context and what the agent may do with touched fields (`touched` and `edits` each turn; today this is only a bullet in "How it works").
+   - Security: PII, prompt injection, rate limiting, secrets (after P1 lands, so it describes what exists).
 8. **Production persistence.** Describe how history, form state and field provenance would be stored (a Durable Object per session, or DynamoDB/Firestore; TTL, encryption at rest, PII retention) and what changes: a stateful server, deltas instead of the whole form, session resume, an audit trail.
 9. **Cloud architecture on AWS, GCP or Azure.** The spec requires one of the three and the repo is Cloudflare-only. Either map the design (e.g. S3 + CloudFront for React; API Gateway + Lambda or Fargate for streaming APIs; DynamoDB; Secrets Manager; CloudWatch/X-Ray; WAF; KMS) or justify staying on Cloudflare in writing. Cover React hosting, APIs, database, session and form state, secrets, monitoring, security controls, scaling from small, and why serverless (or not).
 10. **High-level architecture diagram.** `ARCH.md` only has an ASCII local-flow diagram. Add a proper diagram (Mermaid in the README) for the production design and link `ARCH.md`. Update the "Known gaps" list in `ARCH.md` as items land.
